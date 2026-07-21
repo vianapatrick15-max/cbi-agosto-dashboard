@@ -399,11 +399,11 @@ function adsAgg(o){
 function ads(o){
   const box=el('div');
   box.appendChild(el('div','seclab','<span class="n">4</span> Anúncios · performance'));
-  box.appendChild(el('div',null,'<div style="font-size:12px;color:var(--muted);margin:-4px 0 13px">Apenas anúncios pagos (Meta) · leads pagos atribuídos por UTM Content. CPM = custo/mil impressões · CPC = investido ÷ cliques · Connect rate = visitas ÷ cliques · Tx conversão = leads ÷ visitas.</div>'));
+  box.appendChild(el('div',null,'<div style="font-size:12px;color:var(--muted);margin:-4px 0 13px">Apenas anúncios pagos (Meta) · leads pagos atribuídos por UTM Content. CPM = custo/mil impressões · CPC = investido ÷ cliques · Connect rate = visitas ÷ cliques.</div>'));
   const rows=adsAgg(o);
   if(!rows.length){box.appendChild(el('div','empty','Sem anúncios no período.'));return box;}
   rows.sort((a,b)=>(a[SORT.k]<b[SORT.k]?-1:a[SORT.k]>b[SORT.k]?1:0)*SORT.dir);
-  const cols=[['ad','Anúncio','l'],['s','Investimento'],['leads','Leads'],['cpl','CPL'],['i','Impressões'],['cpm','CPM'],['ctr','CTR'],['cpc','CPC'],['connect','Connect rate'],['tx','Tx conversão']];
+  const cols=[['ad','Anúncio','l'],['s','Investimento'],['leads','Leads'],['cpl','CPL'],['i','Impressões'],['cpm','CPM'],['ctr','CTR'],['cpc','CPC'],['connect','Connect rate']];
   const tot=rows.reduce((a,x)=>{a.s+=x.s;a.i+=x.i;a.c+=x.c;a.lpv+=x.lpv;a.leads+=x.leads;return a;},{s:0,i:0,c:0,lpv:0,leads:0});
   tot.ctr=tot.i?tot.c/tot.i*100:0;tot.connect=tot.c?tot.lpv/tot.c*100:0;tot.cpl=tot.leads?tot.s/tot.leads:0;
   tot.cpm=tot.i?tot.s/tot.i*1000:0;tot.cpc=tot.c?tot.s/tot.c:0;tot.tx=tot.lpv?tot.leads/tot.lpv*100:0;
@@ -422,7 +422,6 @@ function ads(o){
       else if(k==='ctr')h+=`<td>${PCT(a.ctr)}</td>`;
       else if(k==='cpc')h+=`<td>${a.c?BRL(a.cpc):'—'}</td>`;
       else if(k==='connect')h+=`<td>${PCT(a.connect)}</td>`;
-      else if(k==='tx')h+=`<td>${PCT(a.tx)}</td>`;
       else if(k==='cpl'){
         const has=a.leads&&a.s>0;let pill='';
         if(has){const cls=a.cpl<=cplAvg?'g':a.cpl<=cplAvg*1.4?'w':'b';pill=` <span class="pill ${cls}">${a.cpl<=cplAvg?'ok':a.cpl<=cplAvg*1.4?'~':'alto'}</span>`;}
@@ -442,7 +441,6 @@ function ads(o){
     else if(k==='ctr')h+=`<td>${PCT(tot.ctr)}</td>`;
     else if(k==='cpc')h+=`<td>${tot.c?BRL(tot.cpc):'—'}</td>`;
     else if(k==='connect')h+=`<td>${PCT(tot.connect)}</td>`;
-    else if(k==='tx')h+=`<td>${PCT(tot.tx)}</td>`;
   });
   h+='</tr></tbody></table></div>';
   const w=el('div',null,h);
