@@ -73,6 +73,14 @@
     justify-content:flex-end;padding-right:11px;color:#fff;font-size:12.5px;font-weight:800;min-width:38px}
   .brow .bpct{flex:0 0 64px;text-align:right;font-size:12.5px;color:var(--muted)}
   .brow .bpct b{color:var(--ink);font-weight:800}
+  /* donut origem */
+  .donut{max-width:210px;margin:2px auto 0}
+  .dlegend{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+  .dlrow{display:flex;align-items:center;gap:9px;font-size:13px}
+  .dlrow .sw{width:12px;height:12px;border-radius:3px;flex:0 0 auto}
+  .dlrow .nm{flex:1;color:var(--text);font-weight:600}
+  .dlrow .vl{color:var(--text);font-weight:800}
+  .dlrow .vl small{color:var(--muted);font-weight:600;font-size:11px;margin-left:3px}
   .fnote{background:var(--lav);border:1px solid var(--line);border-left:4px solid var(--purple);
     border-radius:10px;padding:11px 14px;margin-top:15px;font-size:12px;color:#4a4463}
   .fnote b{color:var(--ink)}
@@ -192,19 +200,80 @@ function kpis(o){
   return box;
 }
 
-/* ============ section 2 — perfil dos leads (Tipo do Contato) ============ */
-function perfil(o){
-  const box=el('div');
-  box.appendChild(el('div','seclab','<span class="n">2</span> Perfil dos leads'));
+/* ============ section 2 — origem + perfil dos leads ============ */
+// mapa UTM Source -> canal
+function originOf(src){
+  src=(src||'').toLowerCase().trim();
+  if(['ig','fb','meta','meta_ads','meta-ads','instagram','facebook','facebook_ads','instagram_ads','ig_ads'].includes(src))return'Meta Ads';
+  if(src==='social')return'Social';
+  if(src==='parceiro')return'Parceiro';
+  if(['search_ads','google_ads','google','gads'].includes(src))return'Google Ads';
+  if(src==='diagnosticocbi')return'Diagnóstico CBI';
+  if(src===''||src==='(sem origem)'||src==='(vazio)')return'Sem origem';
+  return'Outros';
+}
+const ORIGIN_ORDER=['Meta Ads','Social','Parceiro','Google Ads','Diagnóstico CBI','Sem origem','Outros'];
+const ORIGIN_COLOR={'Meta Ads':'#7961f4','Social':'#0e9aa0','Parceiro':'#e0a020','Google Ads':'#48ad6e','Diagnóstico CBI':'#d94f9c','Sem origem':'#b8b2cc','Outros':'#8a7fd0'};
+
+function svgDonut(items,total){
+  const cx=90,cy=90,r=62,sw=27;
+  const polar=deg=>{const a=(deg-90)*Math.PI/180;return[cx+r*Math.cos(a),cy+r*Math.sin(a)];};
+  let acc=0,s=`<svg class="donut" viewBox="0 0 180 180">`;
+  s+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--lav)" stroke-width="${sw}"/>`;
+  items.forEach(it=>{
+    const frac=total?it.c/total:0; if(frac<=0)return;
+    const a0=acc*360,a1=(acc+frac)*360; acc+=frac;
+    const tipd=`${it.name}|${N(it.c)} leads|${PCT(frac*100)} do total`;
+    if(frac>=0.9999){
+      s+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${it.color}" stroke-width="${sw}" data-tip="${tipd}" style="cursor:pointer"/>`;
+    }else{
+      const[x0,y0]=polar(a0),[x1,y1]=polar(a1),large=(a1-a0)>180?1:0;
+      s+=`<path d="M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}" fill="none" stroke="${it.color}" stroke-width="${sw}" data-tip="${tipd}" style="cursor:pointer"/>`;
+    }
+  });
+  s+=`<text x="${cx}" y="${cy-1}" text-anchor="middle" font-size="27" font-weight="800" fill="var(--ink)">${N(total)}</text>`;
+  s+=`<text x="${cx}" y="${cy+17}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--muted)">leads</text>`;
+  s+=`</svg>`; return s;
+}
+
+function origemPanel(o){
   const p=el('div','panel');
-  p.appendChild(el('h3','Distribuição por tipo de contato <small>(quem se inscreveu)</small>'));
+  p.appendChild(el('h3','Origem dos leads <small>(por canal)</small>'));
+  p.appendChild(el('div','hint','Leads no período agrupados pela origem (UTM Source). Meta Ads reúne Instagram + Facebook pagos; demais canais separados.'));
+  const m={};
+  o.ld.forEach(x=>{const name=originOf(x.src);m[name]=(m[name]||0)+1;});
+  const items=ORIGIN_ORDER.filter(n=>m[n]).map(n=>({name:n,c:m[n],color:ORIGIN_COLOR[n]}));
+  const total=items.reduce((a,x)=>a+x.c,0);
+  if(!total){p.appendChild(el('div','empty','Sem leads no período.'));return p;}
+  p.appendChild(el('div',null,svgDonut(items,total)));
+  let leg='<div class="dlegend">';
+  items.forEach(it=>{const pct=total?it.c/total*100:0;
+    leg+=`<div class="dlrow"><span class="sw" style="background:${it.color}"></span><span class="nm">${it.name}</span><span class="vl">${N(it.c)}<small>${PCT(pct)}</small></span></div>`;});
+  leg+='</div>';
+  p.appendChild(el('div',null,leg));
+  return p;
+}
+
+function leadsSection(o){
+  const box=el('div');
+  box.appendChild(el('div','seclab','<span class="n">2</span> Origem e perfil dos leads'));
+  const wrap=el('div','charts2');
+  wrap.appendChild(origemPanel(o));
+  wrap.appendChild(perfilPanel(o));
+  box.appendChild(wrap);
+  return box;
+}
+
+function perfilPanel(o){
+  const p=el('div','panel');
+  p.appendChild(el('h3','Perfil por tipo de contato <small>(quem se inscreveu)</small>'));
   p.appendChild(el('div','hint','Leads no período agrupados pela profissão informada no cadastro. Barra = quantidade · à direita: % do total com tipo informado.'));
   // agrega
   const m={};let semTipo=0;
   o.ld.forEach(x=>{const t=(x.tp||'').trim();if(!t){semTipo++;return;}(m[t]=m[t]||0);m[t]+=1;});
   const rows=Object.entries(m).map(([t,c])=>({t,c})).sort((a,b)=>b.c-a.c);
   const totalT=rows.reduce((a,x)=>a+x.c,0);
-  if(!rows.length){box.appendChild(el('div','empty','Sem tipo de contato informado no período.'));return box;}
+  if(!rows.length){p.appendChild(el('div','empty','Sem tipo de contato informado no período.'));return p;}
   const top=Math.max(1,rows[0].c);
   const brk=el('div','brk');
   rows.forEach(r=>{
@@ -226,8 +295,7 @@ function perfil(o){
   p.appendChild(el('div','fnote',
     `Público predominante: <b>${lead0.t}</b> (${N(lead0.c)} leads · ${PCT(totalT?lead0.c/totalT*100:0)}). `+
     (semTipo?`<b>${N(semTipo)}</b> lead(s) sem tipo informado ficam fora deste recorte.`:'')));
-  box.appendChild(p);
-  return box;
+  return p;
 }
 
 /* ============ section 3 — evolução por dia (igual print) ============ */
@@ -400,7 +468,7 @@ function render(){
   $('#sub').textContent=`Campanha ${RAW.campaign||'Agosto Solidário'} · ${brdatef(FROM)} a ${brdatef(TO)}`;
   const v=$('#view');v.innerHTML='';
   v.appendChild(kpis(o));
-  v.appendChild(perfil(o));
+  v.appendChild(leadsSection(o));
   v.appendChild(evolution());
   v.appendChild(ads(o));
   bindTips(v);
