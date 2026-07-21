@@ -21,7 +21,8 @@ from pathlib import Path
 
 # ----------------------------- FONTES -----------------------------
 TRAF_SID  = "1puw54S9fYWrGwdgp1jV2KGOo619oWQx0bNp6mecX9-c"
-TRAF_TAB  = None  # None = primeira aba (gid=0)
+TRAF_TAB  = None          # None = primeira aba (gid=0) -> Meta
+GADS_TAB  = "Google_ads"  # aba de Google Ads (gid=721710950), nivel campanha
 LEADS_SID = "1vcpyCCE0d8zvoSfZqEacvRcJ3yQQgZdogO7CJu32MwA"
 TAB_LEADS = "[CBI] Leads Agosto Solidário"
 
@@ -30,10 +31,18 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets",
           "https://www.googleapis.com/auth/drive"]
 LOCAL_CRED = os.path.expanduser("~/.claude/skills/ga4/credentials/ga4-instituto-andhela.json")
 
-# Origens tratadas como PAGO (Meta). search_ads (Google) fica fora do CPL pago
-# pois a verba da planilha de trafego é só Meta.
-PAID_SOURCES = {"ig", "fb", "facebook", "instagram", "meta", "meta_ads", "meta-ads",
-                "facebook_ads", "instagram_ads", "ig_ads"}
+# Classificacao de origem por UTM Source. Agora ha verba de Meta E Google na
+# planilha de trafego, entao ambos contam como PAGO. dgen_ads/search_ads = Google.
+META_SOURCES   = {"ig", "fb", "facebook", "instagram", "meta", "meta_ads", "meta-ads",
+                  "facebook_ads", "instagram_ads", "ig_ads"}
+GOOGLE_SOURCES = {"dgen_ads", "search_ads", "google_ads", "google-ads", "google", "gads"}
+PAID_SOURCES   = META_SOURCES | GOOGLE_SOURCES
+
+def channel_of(src):
+    s = (src or "").strip().lower()
+    if s in META_SOURCES:   return "meta"
+    if s in GOOGLE_SOURCES: return "google"
+    return "org"
 
 # Candidatos de cabecalho (case-insensitive) para a planilha de trafego.
 H_DAY   = ["day", "date", "dia", "data", "reporting starts", "data de início dos relatórios"]
@@ -41,8 +50,8 @@ H_CAMP  = ["campaign name", "campaign", "campanha", "nome da campanha"]
 H_ADSET = ["ad set name", "adset name", "ad set", "adset", "conjunto de anúncios",
            "nome do conjunto de anúncios"]
 H_AD    = ["ad name", "ad", "anúncio", "nome do anúncio", "nome do anuncio"]
-H_SPEND = ["amount spent", "amount spent (brl)", "spend", "valor gasto", "valor usado",
-           "valor usado (brl)", "investimento", "gasto"]
+H_SPEND = ["amount spent", "amount spent (brl)", "spend", "cost (spend)", "cost", "custo",
+           "valor gasto", "valor usado", "valor usado (brl)", "investimento", "gasto"]
 H_IMP   = ["impressions", "impressões", "impressoes"]
 H_REACH = ["reach", "alcance"]
 H_CLICK = ["link clicks", "cliques no link", "clicks", "cliques", "cliques (todos)"]
@@ -148,8 +157,37 @@ for r in g[1:]:
         "r": inum(cell(r, cReach)),
         "c": inum(cell(r, cClk)),
         "lpv": inum(cell(r, cLpv)),
+        "ch": "meta",
     })
     spend_days.add(day)
+
+# ---- Trafego Google Ads (nivel campanha; sem LPV/alcance na fonte) ----
+try:
+    gw = ws_by_title(traf, GADS_TAB)
+    gg = gw.get_all_values()
+    gh = gg[0]
+    gDay, gCamp = hidx(gh, H_DAY), hidx(gh, H_CAMP)
+    gSp, gImp, gClk = hidx(gh, H_SPEND), hidx(gh, H_IMP), hidx(gh, H_CLICK)
+    for r in gg[1:]:
+        if gDay is None or len(r) <= gDay or not str(r[gDay]).strip(): continue
+        day = daykey(r[gDay])
+        if not day: continue
+        camp = cell(r, gCamp).strip()
+        deliv.append({
+            "d": day,
+            "camp": camp,
+            "adset": "",
+            "ad": camp or "(Google Ads)",
+            "s": round(num(cell(r, gSp)), 2),
+            "i": inum(cell(r, gImp)),
+            "r": 0,
+            "c": inum(cell(r, gClk)),
+            "lpv": 0,
+            "ch": "google",
+        })
+        spend_days.add(day)
+except KeyError:
+    pass  # aba de Google ainda nao existe nessa planilha
 
 # ---- Leads (um por linha, sem PII) ----
 leadsheet = gc.open_by_key(LEADS_SID)
@@ -167,12 +205,14 @@ for r in lv[1:]:
     day = daykey(r[iD])
     if not day: continue
     src = norm(cell(r, iSrc))
+    ch  = channel_of(src)
     leads.append({
         "d": day,
         "ct": norm(cell(r, iCont)) or "(sem atribuição)",
         "src": src or "(sem origem)",
         "tp": cell(r, iTipo).strip(),
-        "p": 1 if src in PAID_SOURCES else 0,
+        "p": 1 if ch in ("meta", "google") else 0,
+        "ch": ch,
     })
     lead_days.add(day)
 
@@ -211,9 +251,13 @@ tpl = (base / "template.html").read_text()
 (base / "index.html").write_text(tpl.replace("__DATA__", json.dumps(data, ensure_ascii=False)))
 
 # ----------------------------- RESUMO -----------------------------
+sp_meta = sum(x["s"] for x in deliv if x.get("ch") != "google")
+sp_gads = sum(x["s"] for x in deliv if x.get("ch") == "google")
+l_meta = sum(1 for x in leads if x.get("ch") == "meta")
+l_gads = sum(1 for x in leads if x.get("ch") == "google")
 print(f"CBI Agosto Solidario | dados {data_from}..{data_to} | spend {spend_from}..{spend_to}")
 print(f"deliv {len(deliv)} regs | leads {len(leads)}")
-print(f"spend R$ {total_spend(deliv):,.2f} | cliques {sum(x['c'] for x in deliv)} | leads {len(leads)}")
+print(f"spend R$ {total_spend(deliv):,.2f}  (Meta R$ {sp_meta:,.2f} | Google R$ {sp_gads:,.2f})")
 lp = sum(1 for x in leads if x['p'] == 1)
-print(f"leads pagos {lp} | organicos {len(leads)-lp}")
+print(f"leads pagos {lp} (Meta {l_meta} | Google {l_gads}) | organicos {len(leads)-lp}")
 print(f"OK -> {OUT} ({OUT.stat().st_size//1024} KB)")

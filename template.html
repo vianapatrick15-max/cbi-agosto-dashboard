@@ -169,12 +169,18 @@ function agg(){
   const dv=RAW.deliv.filter(x=>inRange(x.d));
   const ld=RAW.leads.filter(x=>inRange(x.d));
   const spend=dv.reduce((a,x)=>a+x.s,0);
+  const spendGoogle=dv.filter(x=>x.ch==='google').reduce((a,x)=>a+x.s,0);
+  const spendMeta=spend-spendGoogle;
   const leads=ld.length;
+  const leadsMeta=ld.filter(x=>x.ch==='meta').length;
+  const leadsGoogle=ld.filter(x=>x.ch==='google').length;
   const leadsPaid=ld.filter(x=>x.p===1).length;
   const leadsOrg=leads-leadsPaid;
-  return {dv,ld,spend,leads,leadsPaid,leadsOrg,
+  return {dv,ld,spend,spendMeta,spendGoogle,leads,leadsMeta,leadsGoogle,leadsPaid,leadsOrg,
     cpl: leads?spend/leads:0,
-    cplPaid: leadsPaid?spend/leadsPaid:0};
+    cplPaid: leadsPaid?spend/leadsPaid:0,
+    cplMeta: leadsMeta?spendMeta/leadsMeta:0,
+    cplGoogle: leadsGoogle?spendGoogle/leadsGoogle:0};
 }
 
 /* ============ section 1 — KPIs ============ */
@@ -184,12 +190,12 @@ function kpis(o){
   const g=el('div','grid');
   const pctP=o.leads?o.leadsPaid/o.leads*100:0, pctO=o.leads?o.leadsOrg/o.leads*100:0;
   const cards=[
-    ['hero','Investimento',BRL(o.spend),`${o.dv.length} linhas de entrega`],
+    ['hero','Investimento',BRL(o.spend),`Meta ${BRL0(o.spendMeta)} · Google ${BRL0(o.spendGoogle)}`],
     ['','Leads (total)',N(o.leads),`pagos + orgânicos`],
     ['','CPL (total)',o.leads?BRL(o.cpl):'—','investimento ÷ leads'],
     ['','Leads pagos',N(o.leadsPaid),`${PCT(pctP)} do total`],
     ['','Leads orgânicos',N(o.leadsOrg),`${PCT(pctO)} do total`],
-    ['hero','CPL pago',o.leadsPaid?BRL(o.cplPaid):'—','investimento ÷ leads pagos'],
+    ['hero','CPL pago (blend)',o.leadsPaid?BRL(o.cplPaid):'—','Meta + Google ÷ leads pagos'],
   ];
   cards.forEach(([cl,k,v,m])=>{
     const c=el('div','card '+cl);
@@ -197,23 +203,43 @@ function kpis(o){
     g.appendChild(c);
   });
   box.appendChild(g);
+  // ---- por canal pago (Meta x Google) ----
+  const t=el('div',null,'Investimento por canal pago');
+  t.style.cssText='font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:20px 0 11px';
+  box.appendChild(t);
+  const g2=el('div','grid');
+  [['Meta Ads',o.spendMeta,o.leadsMeta,o.cplMeta,'#7961f4'],
+   ['Google Ads',o.spendGoogle,o.leadsGoogle,o.cplGoogle,'#48ad6e']].forEach(([nm,sp,lp,cp,col])=>{
+    const c=el('div','card');
+    c.style.borderLeft='4px solid '+col;
+    c.appendChild(el('div','k',nm));
+    c.appendChild(el('div','v',BRL(sp)));
+    c.appendChild(el('div','meta',`<b>${N(lp)}</b> leads · CPL <b>${lp?BRL(cp):'—'}</b>`));
+    g2.appendChild(c);
+  });
+  box.appendChild(g2);
   return box;
 }
 
 /* ============ section 2 — origem + perfil dos leads ============ */
-// mapa UTM Source -> canal
+// mapa UTM Source -> canal. Cada UTM clara vira sua propria fatia (nada de "Outros"):
+// origens desconhecidas nao-vazias aparecem com o rotulo cru da UTM.
+const META_SRC=['ig','fb','meta','meta_ads','meta-ads','instagram','facebook','facebook_ads','instagram_ads','ig_ads'];
+const GOOGLE_SRC=['dgen_ads','search_ads','google_ads','google-ads','google','gads'];
+const SRC_LABEL={social:'Social',whatsapp_grupos:'WhatsApp Grupos',whatsapp:'WhatsApp Grupos',
+  parceiro:'Parceiro',diagnosticocbi:'Diagnóstico CBI',direto:'Direto',direct:'Direto',
+  hs_automation:'Automação (HubSpot)'};
 function originOf(src){
   src=(src||'').toLowerCase().trim();
-  if(['ig','fb','meta','meta_ads','meta-ads','instagram','facebook','facebook_ads','instagram_ads','ig_ads'].includes(src))return'Meta Ads';
-  if(src==='social')return'Social';
-  if(src==='parceiro')return'Parceiro';
-  if(['search_ads','google_ads','google','gads'].includes(src))return'Google Ads';
-  if(src==='diagnosticocbi')return'Diagnóstico CBI';
+  if(META_SRC.includes(src))return'Meta Ads';
+  if(GOOGLE_SRC.includes(src))return'Google Ads';
   if(src===''||src==='(sem origem)'||src==='(vazio)')return'Sem origem';
-  return'Outros';
+  return SRC_LABEL[src]||src;   // mapeia tudo; UTM clara nunca cai em "Outros"
 }
-const ORIGIN_ORDER=['Meta Ads','Social','Parceiro','Google Ads','Diagnóstico CBI','Sem origem','Outros'];
-const ORIGIN_COLOR={'Meta Ads':'#7961f4','Social':'#0e9aa0','Parceiro':'#e0a020','Google Ads':'#48ad6e','Diagnóstico CBI':'#d94f9c','Sem origem':'#b8b2cc','Outros':'#8a7fd0'};
+const ORIGIN_COLOR={'Meta Ads':'#7961f4','Google Ads':'#48ad6e','Social':'#0e9aa0',
+  'WhatsApp Grupos':'#25b36b','Parceiro':'#e0a020','Diagnóstico CBI':'#d94f9c',
+  'Direto':'#5b6b8c','Automação (HubSpot)':'#9a7fd0','Sem origem':'#b8b2cc'};
+const ORIGIN_PALETTE=['#8a7fd0','#e07a5f','#3aa0b8','#c0a04a','#a05fd0','#6ab04c','#d0708f'];
 
 function svgDonut(items,total){
   const cx=90,cy=90,r=62,sw=27;
@@ -239,10 +265,13 @@ function svgDonut(items,total){
 function origemPanel(o){
   const p=el('div','panel');
   p.appendChild(el('h3','Origem dos leads <small>(por canal)</small>'));
-  p.appendChild(el('div','hint','Leads no período agrupados pela origem (UTM Source). Meta Ads reúne Instagram + Facebook pagos; demais canais separados.'));
+  p.appendChild(el('div','hint','Leads no período pela origem (UTM Source). Meta Ads = Instagram + Facebook pagos; Google Ads = dgen + search; cada origem clara aparece separada.'));
   const m={};
   o.ld.forEach(x=>{const name=originOf(x.src);m[name]=(m[name]||0)+1;});
-  const items=ORIGIN_ORDER.filter(n=>m[n]).map(n=>({name:n,c:m[n],color:ORIGIN_COLOR[n]}));
+  let pi=0;
+  const items=Object.entries(m).map(([name,c])=>({name,c}))
+    .sort((a,b)=>b.c-a.c)
+    .map(it=>({...it,color:ORIGIN_COLOR[it.name]||ORIGIN_PALETTE[pi++%ORIGIN_PALETTE.length]}));
   const total=items.reduce((a,x)=>a+x.c,0);
   if(!total){p.appendChild(el('div','empty','Sem leads no período.'));return p;}
   p.appendChild(el('div',null,svgDonut(items,total)));
@@ -387,10 +416,10 @@ function evolution(){
 let SORT={k:'leads',dir:-1};
 function adsAgg(o){
   const m={};
-  o.dv.forEach(x=>{const k=x.ad;(m[k]=m[k]||{ad:k,s:0,i:0,c:0,lpv:0,leads:0}).s+=x.s;m[k].i+=x.i;m[k].c+=x.c;m[k].lpv+=(x.lpv||0);});
-  // apenas anuncios pagos: so leads pagos atribuidos a um anuncio real que existe na entrega Meta
-  // (descarta organico, "(sem atribuicao)", link_in_bio e ids sem criativo)
-  o.ld.forEach(x=>{if(x.p!==1)return;const k=x.ct;if(!m[k])return;m[k].leads+=1;});
+  o.dv.filter(x=>x.ch!=='google').forEach(x=>{const k=x.ad;(m[k]=m[k]||{ad:k,s:0,i:0,c:0,lpv:0,leads:0}).s+=x.s;m[k].i+=x.i;m[k].c+=x.c;m[k].lpv+=(x.lpv||0);});
+  // apenas anuncios pagos Meta: so leads Meta atribuidos a um anuncio real que existe na entrega
+  // (descarta Google — nivel campanha, sem LPV —, organico, "(sem atribuicao)" e ids sem criativo)
+  o.ld.forEach(x=>{if(x.p!==1||x.ch!=='meta')return;const k=x.ct;if(!m[k])return;m[k].leads+=1;});
   // ctr = cliques no link / impressões · connect rate = LPV / cliques · cpm = custo/mil impr · cpc = custo/clique · tx = leads/LPV
   return Object.values(m).map(a=>({...a,
     ctr:a.i?a.c/a.i*100:0, connect:a.c?a.lpv/a.c*100:0, cpl:a.leads?a.s/a.leads:0,
